@@ -7,8 +7,8 @@ Repositorio dedicado ao provisionamento da camada de dados e mensageria da `Ofic
 - RDS PostgreSQL da aplicacao principal
 - RDS PostgreSQL do `os-service`
 - RDS PostgreSQL do `billing-service`
-- DocumentDB para `execution-service` e auditoria do `billing-service`
-- MSK para eventos de Saga e integracao
+- MongoDB em EC2 para `execution-service` e auditoria do `billing-service`
+- Kafka em EC2 para eventos de Saga e integracao
 - Outputs para consumo por `platform-runtime`, `app-deployments` e pipelines
 
 ## Dependencias de infraestrutura

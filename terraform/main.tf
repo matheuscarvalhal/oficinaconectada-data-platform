@@ -16,11 +16,32 @@ locals {
   private_subnets = data.terraform_remote_state.foundation.outputs.private_subnet_ids
   vpc_id          = data.terraform_remote_state.foundation.outputs.vpc_id
   vpc_cidr        = data.terraform_remote_state.foundation.outputs.vpc_cidr
+  primary_subnet  = local.private_subnets[0]
 
   common_tags = {
     Project   = var.project_name
     ManagedBy = "terraform"
     Layer     = "data-platform"
+  }
+}
+
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["137112412989"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023*-x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
   }
 }
 
@@ -125,67 +146,86 @@ resource "aws_db_instance" "billing_service" {
   tags = local.common_tags
 }
 
-resource "aws_docdb_subnet_group" "main" {
-  name       = "${var.project_name}-docdb-subnet-group"
-  subnet_ids = local.private_subnets
+resource "aws_instance" "mongo" {
+  ami                         = data.aws_ami.amazon_linux.id
+  instance_type               = "t3.micro"
+  subnet_id                   = local.primary_subnet
+  vpc_security_group_ids      = [aws_security_group.data.id]
+  associate_public_ip_address = false
 
-  tags = local.common_tags
-}
-
-resource "aws_docdb_cluster" "main" {
-  cluster_identifier      = "${var.project_name}-docdb"
-  engine                  = "docdb"
-  master_username         = "docdb_admin"
-  master_password         = var.docdb_master_password
-  db_subnet_group_name    = aws_docdb_subnet_group.main.name
-  vpc_security_group_ids  = [aws_security_group.data.id]
-  skip_final_snapshot     = true
-  backup_retention_period = 1
-
-  tags = local.common_tags
-}
-
-resource "aws_docdb_cluster_instance" "main" {
-  identifier         = "${var.project_name}-docdb-1"
-  cluster_identifier = aws_docdb_cluster.main.id
-  instance_class     = "db.t3.medium"
-
-  tags = local.common_tags
-}
-
-resource "aws_msk_configuration" "main" {
-  kafka_versions = ["3.6.0"]
-  name           = "${var.project_name}-msk-config"
-
-  server_properties = <<PROPERTIES
-auto.create.topics.enable=true
-default.replication.factor=2
-min.insync.replicas=1
-num.partitions=3
-PROPERTIES
-}
-
-resource "aws_msk_cluster" "main" {
-  cluster_name           = "${var.project_name}-msk"
-  kafka_version          = "3.6.0"
-  number_of_broker_nodes = 2
-
-  broker_node_group_info {
-    instance_type   = "kafka.t3.small"
-    client_subnets  = local.private_subnets
-    security_groups = [aws_security_group.data.id]
-
-    storage_info {
-      ebs_storage_info {
-        volume_size = 100
-      }
-    }
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
   }
 
-  configuration_info {
-    arn      = aws_msk_configuration.main.arn
-    revision = aws_msk_configuration.main.latest_revision
+  user_data_replace_on_change = true
+  user_data = <<-EOF
+              #!/bin/bash
+              set -eux
+              dnf update -y
+              dnf install -y docker
+              systemctl enable --now docker
+              docker volume create mongodb_data
+              docker run -d \
+                --name mongodb \
+                --restart unless-stopped \
+                -p 27017:27017 \
+                -e MONGO_INITDB_ROOT_USERNAME=${var.mongo_root_username} \
+                -e MONGO_INITDB_ROOT_PASSWORD=${var.mongo_root_password} \
+                -v mongodb_data:/data/db \
+                mongo:7
+              EOF
+
+  tags = merge({
+    Name = "${var.project_name}-mongo-ec2"
+  }, local.common_tags)
+}
+
+resource "aws_instance" "kafka" {
+  ami                         = data.aws_ami.amazon_linux.id
+  instance_type               = "t3.micro"
+  subnet_id                   = local.primary_subnet
+  vpc_security_group_ids      = [aws_security_group.data.id]
+  associate_public_ip_address = false
+
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
   }
 
-  tags = local.common_tags
+  user_data_replace_on_change = true
+  user_data = <<-EOF
+              #!/bin/bash
+              set -eux
+              TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+              PRIVATE_IP=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
+              dnf update -y
+              dnf install -y docker
+              systemctl enable --now docker
+              docker run -d \
+                --name kafka \
+                --restart unless-stopped \
+                -p 9092:9092 \
+                -e KAFKA_CFG_NODE_ID=1 \
+                -e KAFKA_CFG_PROCESS_ROLES=broker,controller \
+                -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+                -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+                -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://$PRIVATE_IP:9092 \
+                -e KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
+                -e KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+                -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@$PRIVATE_IP:9093 \
+                -e KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true \
+                -e KAFKA_CFG_NUM_PARTITIONS=3 \
+                -e KAFKA_CFG_DEFAULT_REPLICATION_FACTOR=1 \
+                -e KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+                -e KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+                -e KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+                -e KAFKA_KRAFT_CLUSTER_ID=abcdefghijklmnopqrstuv \
+                -e ALLOW_PLAINTEXT_LISTENER=yes \
+                bitnami/kafka:3.6
+              EOF
+
+  tags = merge({
+    Name = "${var.project_name}-kafka-ec2"
+  }, local.common_tags)
 }

@@ -31,7 +31,8 @@ jobs:
           echo "TF_VAR_main_db_password=$(echo "$SECRET_JSON" | jq -r '.main_db_password')" >> $GITHUB_ENV
           echo "TF_VAR_os_db_password=$(echo "$SECRET_JSON" | jq -r '.os_db_password')" >> $GITHUB_ENV
           echo "TF_VAR_billing_db_password=$(echo "$SECRET_JSON" | jq -r '.billing_db_password')" >> $GITHUB_ENV
-          echo "TF_VAR_docdb_master_password=$(echo "$SECRET_JSON" | jq -r '.docdb_master_password')" >> $GITHUB_ENV
+          echo "TF_VAR_mongo_root_username=$(echo "$SECRET_JSON" | jq -r '.mongo_root_username')" >> $GITHUB_ENV
+          echo "TF_VAR_mongo_root_password=$(echo "$SECRET_JSON" | jq -r '.mongo_root_password')" >> $GITHUB_ENV
       - name: Terraform Init
         working-directory: ./terraform
         run: terraform init -input=false

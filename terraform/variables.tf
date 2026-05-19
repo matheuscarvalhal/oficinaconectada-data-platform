@@ -23,7 +23,12 @@ variable "billing_db_password" {
   sensitive = true
 }
 
-variable "docdb_master_password" {
+variable "mongo_root_username" {
+  type    = string
+  default = "mongo_admin"
+}
+
+variable "mongo_root_password" {
   type      = string
   sensitive = true
 }

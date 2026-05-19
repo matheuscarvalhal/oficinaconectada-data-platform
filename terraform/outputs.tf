@@ -22,16 +22,20 @@ output "billing_db_port" {
   value = aws_db_instance.billing_service.port
 }
 
-output "docdb_endpoint" {
-  value = aws_docdb_cluster.main.endpoint
+output "mongo_endpoint" {
+  value = aws_instance.mongo.private_dns
 }
 
-output "docdb_port" {
-  value = aws_docdb_cluster.main.port
+output "mongo_port" {
+  value = 27017
 }
 
-output "msk_bootstrap_brokers" {
-  value = aws_msk_cluster.main.bootstrap_brokers
+output "mongo_root_username" {
+  value = var.mongo_root_username
+}
+
+output "kafka_bootstrap_servers" {
+  value = "${aws_instance.kafka.private_dns}:9092"
 }
 
 output "data_security_group_id" {
