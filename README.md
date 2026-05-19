@@ -4,7 +4,7 @@ Repositorio dedicado ao provisionamento da camada de dados e mensageria da `Ofic
 
 ## Escopo
 
-- RDS PostgreSQL da aplicacao principal
+- PostgreSQL em EC2 privada para a aplicacao principal
 - RDS PostgreSQL do `os-service`
 - RDS PostgreSQL do `billing-service`
 - MongoDB em EC2 para `execution-service` e auditoria do `billing-service`

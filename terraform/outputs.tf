@@ -1,9 +1,9 @@
-﻿output "main_db_endpoint" {
-  value = aws_db_instance.main_app.address
+output "main_db_endpoint" {
+  value = aws_instance.main_app_postgres.private_dns
 }
 
 output "main_db_port" {
-  value = aws_db_instance.main_app.port
+  value = 5432
 }
 
 output "os_db_endpoint" {
@@ -41,3 +41,4 @@ output "kafka_bootstrap_servers" {
 output "data_security_group_id" {
   value = aws_security_group.data.id
 }
+

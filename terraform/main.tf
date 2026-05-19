@@ -89,23 +89,40 @@ resource "aws_db_subnet_group" "postgres" {
   tags = local.common_tags
 }
 
-resource "aws_db_instance" "main_app" {
-  identifier             = "${var.project_name}-main-app-postgres"
-  engine                 = "postgres"
-  engine_version         = "15.14"
-  instance_class         = "db.t4g.micro"
-  allocated_storage      = 20
-  max_allocated_storage  = 100
-  db_name                = "oficinaconectada"
-  username               = "app_user"
-  password               = var.main_db_password
-  db_subnet_group_name   = aws_db_subnet_group.postgres.name
-  vpc_security_group_ids = [aws_security_group.data.id]
-  skip_final_snapshot    = true
-  publicly_accessible    = false
-  multi_az               = false
+resource "aws_instance" "main_app_postgres" {
+  ami                         = data.aws_ami.amazon_linux.id
+  instance_type               = "t3.micro"
+  subnet_id                   = local.primary_subnet
+  vpc_security_group_ids      = [aws_security_group.data.id]
+  associate_public_ip_address = false
 
-  tags = local.common_tags
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  user_data_replace_on_change = true
+  user_data = <<-EOF
+              #!/bin/bash
+              set -eux
+              dnf update -y
+              dnf install -y docker
+              systemctl enable --now docker
+              docker volume create postgres_main_data
+              docker run -d \
+                --name postgres-main \
+                --restart unless-stopped \
+                -p 5432:5432 \
+                -e POSTGRES_DB=oficinaconectada \
+                -e POSTGRES_USER=app_user \
+                -e POSTGRES_PASSWORD=${var.main_db_password} \
+                -v postgres_main_data:/var/lib/postgresql/data \
+                postgres:15
+              EOF
+
+  tags = merge({
+    Name = "${var.project_name}-main-postgres-ec2"
+  }, local.common_tags)
 }
 
 resource "aws_db_instance" "os_service" {
