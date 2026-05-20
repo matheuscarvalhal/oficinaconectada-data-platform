@@ -1,0 +1,43 @@
+﻿name: Deploy data platform
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: sa-east-1
+  TARGET_ENVIRONMENT: prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Load environment secrets from AWS Secrets Manager
+        shell: bash
+        run: |
+          SECRET_ID="oficinaconectada/${TARGET_ENVIRONMENT}/infra/data-platform"
+          SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --query SecretString --output text)
+          echo "TF_VAR_main_db_password=$(echo "$SECRET_JSON" | jq -r '.main_db_password')" >> $GITHUB_ENV
+          echo "TF_VAR_os_db_password=$(echo "$SECRET_JSON" | jq -r '.os_db_password')" >> $GITHUB_ENV
+          echo "TF_VAR_billing_db_password=$(echo "$SECRET_JSON" | jq -r '.billing_db_password')" >> $GITHUB_ENV
+          echo "TF_VAR_mongo_root_username=$(echo "$SECRET_JSON" | jq -r '.mongo_root_username')" >> $GITHUB_ENV
+          echo "TF_VAR_mongo_root_password=$(echo "$SECRET_JSON" | jq -r '.mongo_root_password')" >> $GITHUB_ENV
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init -input=false
+      - name: Terraform Apply
+        working-directory: ./terraform
+        run: terraform apply -auto-approve -input=false
